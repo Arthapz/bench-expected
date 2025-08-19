@@ -1,0 +1,12 @@
+{
+    level = {
+        default = "fast",
+        __scriptdir = [[F:\repos\bench-expected]],
+        __sourceinfo_default = {
+            fast = {
+                file = [[@programdir\core\base\interpreter.lua]],
+                line = 1079
+            }
+        }
+    }
+}
