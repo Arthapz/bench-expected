@@ -1,7 +1,0 @@
-{
-    cmdlines = {
-        "xmake run",
-        "xmake lua C:/Users/arthu/.config/fetch_target_metadata.lua -g",
-        "xmake lua C:/Users/arthu/.config/fetch_target_metadata.lua -g"
-    }
-}
