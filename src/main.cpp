@@ -2,6 +2,7 @@
 #include <coroutine>
 #include <expected>
 #include <nanobench.h>
+#include <ranges>
 
 #if (defined(__clang__) or defined(__GNUC__))
     #define Try_EXT(m)                                  \
@@ -13,6 +14,9 @@
         })
     #define Ok_EXT(x) return x
 #endif
+
+namespace stdr = std::ranges;
+namespace nb   = ankerl::nanobench;
 
 template<typename VAL, typename ERR>
 class Expected: public std::expected<VAL, ERR> {
@@ -27,12 +31,12 @@ class Expected: public std::expected<VAL, ERR> {
         constexpr auto get_return_object() noexcept -> Expected { return Expected { this }; }
 
         template<typename... Args>
-        constexpr void return_value(Args&&... args) noexcept {
+        constexpr auto return_value(Args&&... args) noexcept {
             assert(expected_ptr != nullptr);
             *expected_ptr = Expected { std::in_place, std::forward<Args>(args)... };
         }
 
-        constexpr void return_value(ERR error) noexcept {
+        constexpr auto return_value(ERR error) noexcept {
             assert(expected_ptr != nullptr);
             *expected_ptr = Expected {
                 std::unexpected<ERR> { std::in_place, std::move(error) }
@@ -40,7 +44,7 @@ class Expected: public std::expected<VAL, ERR> {
         }
 
         [[noreturn]]
-        void unhandled_exception() const noexcept {
+        auto unhandled_exception() const noexcept {
             std::abort();
         }
 
@@ -97,7 +101,7 @@ auto use_try_ext(int val) -> Expected<void, Error> {
     auto b  = Try_EXT(bar(f));
     auto fb = Try_EXT(foobar(b));
 
-    // std::println("{}", fb);
+    nb::doNotOptimizeAway(fb);
 
     Ok_EXT({});
 }
@@ -109,7 +113,7 @@ auto use_try(int val) -> Expected<void, Error> {
     auto b  = Try(bar(f));
     auto fb = Try(foobar(b));
 
-    // std::println("{}", fb);
+    nb::doNotOptimizeAway(fb);
 
     Ok({});
 }
@@ -134,7 +138,9 @@ auto foobar2(int val) -> std::expected<int, Error> {
 
 [[gnu::noinline, msvc::noinline]]
 auto use_monadic(int val) -> std::expected<void, Error> {
-    return foo2(val).and_then(bar2).and_then(foobar2).transform([](auto val) noexcept -> void {});
+    return foo2(val).and_then(bar2).and_then(foobar2).transform([](auto val) noexcept -> void {
+        nb::doNotOptimizeAway(val);
+    });
 }
 
 [[gnu::noinline, msvc::noinline]]
@@ -148,58 +154,47 @@ auto use_ifs(int val) -> Expected<void, Error> {
     auto foobar_ret = foobar(*bar_ret);
     if (not foobar_ret) return std::unexpected { std::move(foobar_ret).error() };
 
+    nb::doNotOptimizeAway(*foobar_ret);
+
     return {};
 }
 
-auto main() -> int {
-    namespace nb = ankerl::nanobench;
+auto run_benchs(std::string_view title, int value) {
+    constexpr auto warmup   = 100;
+    constexpr auto relative = true;
+    constexpr auto counters = true;
+    constexpr auto epoch    = 10'000'000;
 
     auto bench = nb::Bench {};
-    bench.title("Expected error handling methods").warmup(100).relative(true);
+    bench.title(stdr::data(title))
+      .warmup(warmup)
+      .relative(relative)
+      .minEpochIterations(epoch)
+      .performanceCounters(counters);
 
-    bench.minEpochIterations(3'000'000);
-
-    bench.performanceCounters(true);
-
-    constexpr auto happy_value = 10;
-    constexpr auto error_value = 5;
-
-    bench.run("ifs happy path", []() noexcept {
-        auto ret = use_ifs(happy_value);
+    bench.run("ifs", [value] noexcept {
+        auto ret = use_ifs(value);
         nb::doNotOptimizeAway(ret);
     });
-    bench.run("ifs error path", []() noexcept {
-        auto ret = use_ifs(error_value);
+    bench.run("monadic", [value] noexcept {
+        auto ret = use_monadic(value);
         nb::doNotOptimizeAway(ret);
     });
-
-    bench.run("monadic happy path", []() noexcept {
-        auto ret = use_monadic(happy_value);
-        nb::doNotOptimizeAway(ret);
-    });
-    bench.run("monadic error path", []() noexcept {
-        auto ret = use_monadic(error_value);
-        nb::doNotOptimizeAway(ret);
-    });
-
 #if (defined(__clang__) or defined(__GNUC__))
-    bench.run("try_ext happy path", []() noexcept {
-        auto ret = use_try_ext(happy_value);
-        nb::doNotOptimizeAway(ret);
-    });
-    bench.run("try_ext error path", []() noexcept {
-        auto ret = use_try_ext(error_value);
+    bench.run("try_ext", [value] noexcept {
+        auto ret = use_try_ext(value);
         nb::doNotOptimizeAway(ret);
     });
 #endif
+    bench.run("try (coroutines)", [value] noexcept {
+        auto ret = use_try(value);
+        nb::doNotOptimizeAway(ret);
+    });
+}
 
-    bench.run("try happy path", []() noexcept {
-        auto ret = use_try(happy_value);
-        nb::doNotOptimizeAway(ret);
-    });
-    bench.run("try error path", []() noexcept {
-        auto ret = use_try(error_value);
-        nb::doNotOptimizeAway(ret);
-    });
+auto main() -> int {
+    run_benchs("Happy path", 10);
+    run_benchs("Error path", 5);
+
     return 0;
 }
